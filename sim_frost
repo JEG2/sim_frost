@@ -1,0 +1,118 @@
+#!/usr/bin/env ruby -w
+
+require "io/console"
+require "optparse"
+
+#######################
+### Parse Arguments ###
+#######################
+
+terminal_size = IO.console.winsize
+options       = { width:  terminal_size.last,
+                  height: terminal_size.first - 1,
+                  vapor:  30,
+                  delay:  0.3 }
+[:width, :height].each do |dimension|
+  options[dimension] -= 1 unless options[dimension].even?
+end
+
+ARGV.options do |opts|
+  opts.banner = "Usage:  #{File.basename($PROGRAM_NAME)} [OPTIONS] OTHER_ARGS"
+  
+  opts.separator ""
+  opts.separator "Specific Options:"
+  
+  opts.on( "-w", "--width CHARS", Integer,
+           "The width of the display.  (Must be even.)" ) do |width|
+    options[:width] = width
+  end
+  opts.on( "-h", "--height LINES", Integer,
+           "The height of the display.(Must be even.)" ) do |height|
+    options[:height] = height
+  end
+  opts.on( "-v", "--vapor PERCENT", Integer,
+           "The chance a cell initially contains vapor." ) do |vapor|
+    options[:vapor] = vapor
+  end
+  opts.on( "-d", "--delay SECONDS", Float,
+           "The (fractional) delay between refreshes." ) do |delay|
+    options[:delay] = delay
+  end
+  
+  opts.separator "Common Options:"
+  
+  opts.on( "-h", "--help",
+           "Show this message." ) do
+    puts opts
+    exit
+  end
+  
+  begin
+    opts.parse!
+    fail "Width must be even"  unless options[:width].even?
+    fail "Height must be even" unless options[:height].even?
+    fail "Must be a percent"   unless options[:vapor].between? 0, 100
+  rescue
+    puts opts
+    exit
+  end
+end
+
+#############
+### Setup ###
+#############
+
+BLUE_COLOR  = "\e[1;34m"
+WHITE_COLOR = "\e[1;37m"
+CLEAR_COLOR = "\e[0m"
+
+grid = Array.new(options[:height]) {
+  Array.new(options[:width]) {
+    rand(1..100) <= options[:vapor] ? "." : " "
+  }
+}
+grid[options[:height] / 2][options[:width] / 2] = "*"
+
+##################
+### Simulation ###
+##################
+
+clear = `clear`
+tick  = 1
+loop do
+  print clear
+  grid.each do |row|
+    row.each do |cell|
+      colored = case cell
+                when "." then "#{BLUE_COLOR}#{cell}#{CLEAR_COLOR}"
+                when "*" then "#{WHITE_COLOR}#{cell}#{CLEAR_COLOR}"
+                else          cell
+                end
+      print colored
+    end
+    puts
+  end
+  sleep options[:delay]
+  
+  break unless grid.any? { |row| row.include? "." }
+  
+  start = tick.even? ? -1 : 0
+  (start...(grid.size + start)).step(2) do |y|
+    (start...(grid.first.size + start)).step(2) do |x|
+      cells        = [[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1]]
+      neighborhood = cells.map { |cx, cy| grid[cy][cx] }
+      if neighborhood.include? "*"
+        cells.each do |cx, cy|
+          grid[cy][cx] = "*" if grid[cy][cx] == "."
+        end
+      elsif neighborhood.include? "."
+        direction = rand < 0.5 ? :clockwise : :counter_clockwise
+        cells.each_with_index do |(cx, cy), i|
+          moved        = direction == :clockwise ? (i == 3 ? 0 : i + 1) : i - 1
+          grid[cy][cx] = neighborhood[moved]
+        end
+      end
+    end
+  end
+  tick += 1
+end
